@@ -1,0 +1,32 @@
+BILLING ISSUES - KNOWLEDGE BASE
+================================
+
+Q: Why was I charged twice?
+A: Duplicate charges can occur due to network timeouts where your bank registers the charge before we received confirmation. Our system automatically prevents actual double-billing. If you see two charges, one will be automatically refunded within 3–5 business days. Contact billing@support.com with your order number if the refund does not appear.
+
+Q: How do I request a refund?
+A: Refunds are available within 14 days of purchase for unused services. To request: (1) Go to Billing → Order History, (2) Select the order, (3) Click "Request Refund" and submit the reason. Refunds are processed in 5–10 business days back to the original payment method.
+
+Q: How do I update my payment method?
+A: Go to Billing → Payment Methods → Add New Method. We accept Visa, MasterCard, American Express, and PayPal. Old cards can be removed once a new default is set.
+
+Q: My invoice is incorrect. What should I do?
+A: Please contact billing@support.com with your invoice number and a description of the discrepancy. Our billing team will review and issue a corrected invoice or credit within 2 business days.
+
+Q: What payment methods do you accept?
+A: We accept all major credit/debit cards (Visa, MasterCard, Amex, Discover), PayPal, bank transfers (ACH/SEPA), and Apple Pay / Google Pay.
+
+Q: How do I cancel my subscription?
+A: Go to Account Settings → Subscription → Cancel Plan. Your access continues until the end of the current billing period. No partial refunds are issued for mid-cycle cancellations unless required by local law.
+
+Q: Why did my payment fail?
+A: Common reasons: (1) Insufficient funds, (2) Card expired, (3) Billing address mismatch, (4) Bank declined for security reasons. Update your payment info in Billing → Payment Methods, then retry. Contact your bank if the issue persists.
+
+Q: Can I get a receipt or tax invoice?
+A: Yes. Go to Billing → Order History and click "Download Receipt" on any transaction. For tax invoices with VAT/GST numbers, update your billing profile under Billing → Tax Information first.
+
+Q: How does the free trial work?
+A: The free trial lasts 14 days with full access to all features. No credit card is required to start. After the trial, you can choose a paid plan or the service reverts to the free tier with limited features.
+
+Q: How do I upgrade or downgrade my plan?
+A: Go to Account Settings → Subscription → Change Plan. Upgrades take effect immediately (prorated charge applied). Downgrades take effect at the next billing cycle.

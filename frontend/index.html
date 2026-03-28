@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CS Support Operations System</title>
+  <meta name="description"
+    content="AI-powered customer support ticket management with LangChain RAG, intent classification, sentiment analysis, and automated routing." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <!-- ─── Header ─────────────────────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <div>
+          <span class="logo-title">CS Support OS</span>
+          <span class="logo-sub">LangChain RAG · OpenRouter · Supabase</span>
+        </div>
+      </div>
+      <div class="header-status" id="systemStatus">
+        <span class="status-dot"></span>
+        <span>System Online</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ─── Stats Row ──────────────────────────────────────────────────────────── -->
+    <section class="stats-row" id="statsRow">
+      <div class="stat-card">
+        <div class="stat-icon">🎫</div>
+        <div class="stat-value" id="statTotal">—</div>
+        <div class="stat-label">Total Tickets</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🤖</div>
+        <div class="stat-value" id="statAI">—</div>
+        <div class="stat-label">AI Agent</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">👤</div>
+        <div class="stat-value" id="statHuman">—</div>
+        <div class="stat-label">Human Agent</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-value" id="statResolved">—</div>
+        <div class="stat-label">Resolved</div>
+      </div>
+    </section>
+
+    <!-- ─── Email Submission Form ──────────────────────────────────────────────── -->
+    <section class="card form-section">
+      <div class="section-header">
+        <h2>📨 Submit Customer Email</h2>
+        <p>Simulate an incoming customer email — the RAG pipeline will analyse and route it automatically.</p>
+      </div>
+      <form id="emailForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="senderEmail">Sender Email</label>
+            <input type="email" id="senderEmail" placeholder="customer@example.com" required autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label for="senderSubject">Subject</label>
+            <input type="text" id="senderSubject" placeholder="e.g. My payment failed!" required />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="senderBody">Email Body</label>
+          <textarea id="senderBody" rows="5"
+            placeholder="I'm extremely frustrated — my payment was declined again even though my card is valid. Please help urgently!"></textarea>
+        </div>
+
+        <!-- Quick test samples -->
+        <div class="sample-buttons">
+          <span class="sample-label">Quick samples:</span>
+          <button type="button" class="sample-btn" id="sampleAngry">😡 Angry + Payment Failed</button>
+          <button type="button" class="sample-btn" id="sampleSecurity">🔐 Security Breach</button>
+          <button type="button" class="sample-btn" id="sampleGeneral">❓ General FAQ</button>
+          <button type="button" class="sample-btn" id="sampleTech">🔧 Technical Issue</button>
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">
+          <span id="submitBtnText">Process Email →</span>
+          <span id="submitSpinner" class="spinner hidden"></span>
+        </button>
+      </form>
+
+      <!-- Result panel -->
+      <div id="resultPanel" class="result-panel hidden">
+        <div class="result-header">
+          <span>✅ Ticket Created</span>
+          <button class="result-close" id="resultClose">✕</button>
+        </div>
+        <pre id="resultJson"></pre>
+      </div>
+    </section>
+
+    <!-- ─── Tickets Table ─────────────────────────────────────────────────────── -->
+    <section class="card tickets-section">
+      <div class="section-header tickets-header-row">
+        <div>
+          <h2>🗂 All Tickets</h2>
+          <p>Click any row to view full details &amp; AI reply.</p>
+        </div>
+        <button class="refresh-btn" id="refreshBtn" title="Refresh tickets">↻ Refresh</button>
+      </div>
+      
+      <!-- New Filters Section -->
+      <div class="tickets-filters" id="ticketsFilters" style="display: none; margin-bottom: 20px; gap: 12px; align-items: flex-end; flex-wrap: wrap; background: rgba(255,255,255,0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-size: 10px; font-weight: 600; text-transform: uppercase; color: #71717a; letter-spacing: 0.5px;">Intent</label>
+          <select id="filterIntent" style="background: #18181b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e4e4e7; padding: 8px 12px; font-size: 14px; outline: none; min-width: 140px;">
+            <option value="">All Intents</option>
+            <option value="Technical Issues">Technical</option>
+            <option value="Billing Issues">Billing</option>
+            <option value="Account Issues">Account</option>
+            <option value="Security Issues">Security</option>
+            <option value="General Support">General</option>
+          </select>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-size: 10px; font-weight: 600; text-transform: uppercase; color: #71717a; letter-spacing: 0.5px;">Sentiment</label>
+          <select id="filterSentiment" style="background: #18181b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e4e4e7; padding: 8px 12px; font-size: 14px; outline: none; min-width: 100px;">
+            <option value="">All</option>
+            <option value="Neutral">Neutral</option>
+            <option value="Angry">Angry</option>
+            <option value="Happy">Happy</option>
+          </select>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-size: 10px; font-weight: 600; text-transform: uppercase; color: #71717a; letter-spacing: 0.5px;">Agent</label>
+          <select id="filterAgent" style="background: #18181b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e4e4e7; padding: 8px 12px; font-size: 14px; outline: none; min-width: 100px;">
+            <option value="">All</option>
+            <option value="AI Agent">AI Agent</option>
+            <option value="Human Agent">Human</option>
+          </select>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-size: 10px; font-weight: 600; text-transform: uppercase; color: #71717a; letter-spacing: 0.5px;">Status</label>
+          <select id="filterStatus" style="background: #18181b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e4e4e7; padding: 8px 12px; font-size: 14px; outline: none; min-width: 100px;">
+            <option value="">All</option>
+            <option value="Open">Open</option>
+            <option value="Resolved">Resolved</option>
+            <option value="Not Resolved">Not Resolved</option>
+          </select>
+        </div>
+
+        <div style="margin-left: auto;">
+          <button id="clearFiltersBtn" style="background: transparent; border: none; color: #a1a1aa; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 8px; display: none;">Clear Filters</button>
+        </div>
+      </div>
+
+      <div id="loadingState" class="loading-state">
+        <div class="spinner-large"></div>
+        <p>Loading tickets…</p>
+      </div>
+
+      <div id="emptyState" class="empty-state hidden">
+        <div class="empty-icon">📭</div>
+        <p>No tickets yet. Submit the first email above!</p>
+      </div>
+
+      <div id="ticketsTableWrap" class="table-wrap hidden">
+        <table class="tickets-table" id="ticketsTable">
+          <thead>
+            <tr>
+              <th>Sender</th>
+              <th>Subject</th>
+              <th>Intent</th>
+              <th>Sentiment</th>
+              <th>Agent</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="ticketsTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─── Detail Modal ──────────────────────────────────────────────────────── -->
+  <div id="modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalTitle">Ticket Details</h3>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="modal-grid" id="modalGrid"></div>
+
+        <div class="modal-reply-section">
+          <h4>🤖 AI-Generated Reply</h4>
+          <div class="ai-reply-box" id="modalReply"></div>
+        </div>
+
+        <div class="modal-json-section">
+          <h4>📄 Full JSON Record</h4>
+          <pre id="modalJson"></pre>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

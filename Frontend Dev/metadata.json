@@ -1,0 +1,5 @@
+{
+  "name": "SupportFlow AI",
+  "description": "AI-powered customer support ticket processor that classifies intent, sentiment, and generates automated replies.",
+  "requestFramePermissions": []
+}
