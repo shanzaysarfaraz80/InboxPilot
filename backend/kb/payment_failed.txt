@@ -1,0 +1,23 @@
+PAYMENT FAILED - KNOWLEDGE BASE
+=================================
+
+Q: Why did my payment fail?
+A: The most common reasons are: (1) insufficient funds, (2) an expired or incorrect card number, (3) your billing address not matching what's on file with your bank, (4) your bank flagging the transaction for extra security review, or (5) a temporary issue with our payment processor.
+
+Q: My card was charged but the order shows "payment failed" — will I be charged twice?
+A: No. When a payment shows as failed on our end but a charge appears on your statement, it's usually a temporary authorization hold, not an actual charge. These holds are automatically released by your bank within 3-5 business days and never convert into a real charge if the order itself failed.
+
+Q: How do I retry a failed payment?
+A: Go to Order History, find the order marked "Payment Failed," and click "Retry Payment." You can also simply place the order again once you've confirmed your payment details are correct.
+
+Q: My card keeps getting declined even though I have funds available.
+A: Double-check the card number, expiry date, CVV, and billing address exactly match your bank's records. If it continues to fail, try a different card or payment method, or contact your bank directly — they can sometimes see the specific decline reason we cannot.
+
+Q: Is it safe to re-enter my card details after a failed payment?
+A: Yes. All payment processing is handled by our PCI-DSS compliant payment processor over an encrypted connection. We never store your full card number on our servers.
+
+Q: Do you accept other payment methods if my card isn't working?
+A: Yes, in addition to major credit/debit cards we accept PayPal, Apple Pay, and Google Pay. Switching payment methods at checkout often resolves persistent card decline issues.
+
+Q: I was charged in the wrong currency or amount.
+A: Please email billing@support.com with your order ID and a screenshot of the charge. Our billing team will review and correct any discrepancy within 2 business days.

@@ -1,0 +1,29 @@
+QUERIES - KNOWLEDGE BASE
+==========================
+
+Q: How do I track my order?
+A: You'll receive a tracking link by email as soon as your order ships. You can also view tracking anytime under Order History on our website.
+
+Q: How long does shipping usually take?
+A: Standard shipping takes 3-7 business days within the country, and 7-14 business days for international orders. Expedited shipping (2-3 business days) is available at checkout for an extra fee.
+
+Q: Do you ship internationally?
+A: Yes, we ship to over 40 countries. International orders may be subject to customs fees or import duties charged by your local government, which are the customer's responsibility.
+
+Q: Can I change my shipping address after placing an order?
+A: If the order hasn't shipped yet, email queries@support.com with your order ID and the corrected address as soon as possible. Once an order has shipped, we're unable to redirect it.
+
+Q: Can I cancel my order?
+A: Orders can be cancelled for free within 1 hour of placing them, or any time before they ship. After that, you'll need to wait for delivery and start a return instead.
+
+Q: How do I update my account information?
+A: Go to Account Settings → Profile to update your name, email, phone number, or saved addresses.
+
+Q: Do you offer gift wrapping or gift messages?
+A: Yes, both options are available at checkout for a small additional fee.
+
+Q: How can I check if an item is in stock?
+A: Product availability is shown in real time on each product page. You can also sign up for a "notify me" email alert on out-of-stock items.
+
+Q: What should I do if I received someone else's order?
+A: We're sorry for the mix-up! Please email queries@support.com with both your order ID (if you have one) and details from the package you received, and we'll arrange a correction right away.

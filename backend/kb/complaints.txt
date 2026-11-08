@@ -1,0 +1,19 @@
+COMPLAINTS - KNOWLEDGE BASE
+=============================
+
+Note: Complaint tickets are always routed to a human agent for a personal response, so this content is primarily reference material for the support team rather than an auto-reply source.
+
+Q: What is the standard process when a customer files a complaint?
+A: All complaints are escalated to a human agent and marked "Not Resolved" until a team member reviews and responds personally. No automated reply is sent so the customer always receives a human touch.
+
+Q: What is our target response time for complaints?
+A: Human agents aim to respond to escalated complaints within 4 business hours, and to fully resolve or provide a clear next step within 1 business day.
+
+Q: What should a human agent offer when a customer is unhappy with product quality?
+A: Acknowledge the issue, apologize sincerely, and offer a free replacement, full refund, or both depending on severity. For repeated or severe quality issues, flag the product/SKU to the product team.
+
+Q: How should we handle a complaint about a previous support interaction?
+A: Apologize for the experience, review the prior ticket history, and resolve the original issue first. Service-quality complaints should also be logged internally for coaching/training purposes.
+
+Q: What should we do for complaints involving a damaged or unsafe product?
+A: Prioritize customer safety — advise the customer to stop using the product immediately. Offer an immediate refund or replacement and escalate to the Quality/Safety team the same day.

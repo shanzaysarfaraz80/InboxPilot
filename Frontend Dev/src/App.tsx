@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Mail,
   Send,
@@ -25,7 +25,13 @@ import {
   Clock,
   ExternalLink,
   ArrowLeft,
-  Loader2
+  Loader2,
+  BookOpen,
+  Upload,
+  FileText,
+  Trash2,
+  CheckCircle,
+  Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -44,7 +50,7 @@ import {
 
 // --- Types ---
 
-type Page = 'create-ticket' | 'tickets' | 'human-tickets' | 'analytics';
+type Page = 'create-ticket' | 'tickets' | 'human-tickets' | 'analytics' | 'upload-kb' | 'order-tracking';
 
 interface Ticket {
   id: string;
@@ -60,19 +66,23 @@ interface Ticket {
   created_at: string;
 }
 
+interface Order {
+  id: string;
+  name: string;
+  email: string;
+  product: string;
+  order_date: string;
+  delivery_due_date: string;
+  delivery_status: string;
+  created_at: string;
+}
+
 // --- Normalization helpers ---
 // The backend returns values like "AI Agent", "Human Agent", "Resolved", "Not Resolved",
-// "Billing Issues", etc. We normalize them to the lowercase keys used in this UI.
+// "Payment Failed", etc. We normalize them to the lowercase keys used in this UI.
 
 function normalizeIntent(raw: string): string {
-  const map: Record<string, string> = {
-    'Account Issues': 'technical',
-    'Billing Issues': 'billing',
-    'Technical Issues': 'technical',
-    'Security Issues': 'bug',
-    'General Support': 'feature',
-  };
-  return map[raw] ?? raw.toLowerCase().split(' ')[0] ?? 'technical';
+  return (raw || 'queries').toLowerCase();
 }
 
 function normalizeSentiment(raw: string): string {
@@ -149,18 +159,59 @@ const API = {
     }
     return normalizeTicket(await res.json());
   },
+
+  async getOrders(): Promise<Order[]> {
+    const res = await fetch('/api/orders');
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createOrder(payload: Omit<Order, 'id' | 'created_at'>): Promise<Order> {
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail ?? 'Server error');
+    }
+    return res.json();
+  },
+
+  async updateOrder(id: string, updates: Partial<Order>): Promise<Order> {
+    const res = await fetch(`/api/orders/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail ?? 'Server update error');
+    }
+    return res.json();
+  },
+
+  async deleteOrder(id: string): Promise<void> {
+    const res = await fetch(`/api/orders/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail ?? 'Server delete error');
+    }
+  },
 };
 
 // --- Constants ---
 
 const INTENT_ICONS: Record<string, React.ReactNode> = {
-  technical: <Code className="w-4 h-4" />,
-  billing:   <CreditCard className="w-4 h-4" />,
-  product:   <Package className="w-4 h-4" />,
-  feature:   <Sparkles className="w-4 h-4" />,
-  refund:    <RefreshCcw className="w-4 h-4" />,
-  bug:       <Bug className="w-4 h-4" />,
-  cancellation: <XCircle className="w-4 h-4" />,
+  return:           <XCircle className="w-4 h-4" />,
+  refund:           <RefreshCcw className="w-4 h-4" />,
+  'payment failed': <CreditCard className="w-4 h-4" />,
+  queries:          <MessageSquare className="w-4 h-4" />,
+  delivery:         <Package className="w-4 h-4" />,
+  'general faqs':   <Sparkles className="w-4 h-4" />,
+  complaints:       <AlertCircle className="w-4 h-4" />,
 };
 
 const SENTIMENT_COLORS: Record<string, string> = {
@@ -168,26 +219,43 @@ const SENTIMENT_COLORS: Record<string, string> = {
   neutral: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
 };
 
+const DELIVERY_STATUS_COLORS: Record<string, string> = {
+  Pending:   'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
+  Shipped:   'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  Delivered: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  Delayed:   'bg-red-500/10 text-red-400 border-red-500/20',
+};
+
 const SAMPLE_EMAILS = {
   angry: {
+    label: '😡 Angry',
     email: 'angry.customer@example.com',
     subject: 'Transaction Failed AGAIN — Fix This NOW',
     body: "I am absolutely furious! My payment has failed for the third time this week. I was charged $99.99 but the transaction failed and the money still left my account. This is completely unacceptable. I demand an immediate refund and a proper explanation.",
   },
-  security: {
+  complaint: {
+    label: '😠 Complaint',
     email: 'victim@example.com',
-    subject: 'Someone hacked my account — URGENT',
-    body: "I think my account has been compromised. I received a notification of a login from Singapore. I did not log in from there. My password may have been stolen. Please help me secure my account immediately.",
+    subject: 'Very disappointed with my recent purchase',
+    body: "I want to file a complaint. The product I received does not match the description at all and customer service has been unhelpful so far. Please escalate this.",
   },
   general: {
+    label: '❓ FAQ',
     email: 'curious@example.com',
     subject: 'What are your support hours?',
     body: "Hi, I just wanted to know what your customer support hours are and what payment methods you accept. Also, do you have a mobile app? Thanks!",
   },
-  tech: {
-    email: 'user@example.com',
-    subject: 'App not loading — blank screen',
-    body: "The app has been showing a blank white screen for the past 2 hours. I've tried refreshing and clearing my browser cache but nothing works. I'm using Chrome on Windows 11.",
+  delivery: {
+    label: '📦 Delivery',
+    email: 'shopper@example.com',
+    subject: 'Where is my order?',
+    body: "Hi, I placed an order last week and haven't received it yet. Can you tell me the delivery status?",
+  },
+  return: {
+    label: '↩️ Return',
+    email: 'returns@example.com',
+    subject: 'I want to return this product',
+    body: "I received the wrong size and would like to return this item for a refund. Please advise on the return process.",
   },
 };
 
@@ -324,7 +392,7 @@ const ProcessorPage = ({
               onClick={() => fillSample(key)}
               className="px-3 py-1.5 text-xs bg-zinc-900 border border-white/5 rounded-full text-zinc-400 hover:text-zinc-100 hover:border-white/20 transition-all"
             >
-              {key === 'angry' ? '😡 Angry' : key === 'security' ? '🔐 Security' : key === 'general' ? '❓ FAQ' : '🔧 Technical'}
+              {SAMPLE_EMAILS[key].label}
             </button>
           ))}
         </div>
@@ -833,10 +901,13 @@ const TicketsPage = ({
                   className="block w-40 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 >
                   <option value="">All Intents</option>
-                  <option value="technical">Technical</option>
-                  <option value="billing">Billing</option>
-                  <option value="feature">Feature</option>
-                  <option value="bug">Bug</option>
+                  <option value="return">Return</option>
+                  <option value="refund">Refund</option>
+                  <option value="payment failed">Payment Failed</option>
+                  <option value="queries">Queries</option>
+                  <option value="delivery">Delivery</option>
+                  <option value="general faqs">General FAQs</option>
+                  <option value="complaints">Complaints</option>
                 </select>
               </div>
 
@@ -1126,9 +1197,530 @@ const AnalyticsPage = ({ tickets, loading, onRefresh }: { tickets: Ticket[]; loa
   );
 };
 
+// --- Knowledge Base Page ---
+
+interface KBDocument {
+  filename: string;
+  size_bytes: number;
+  last_modified: number;
+}
+
+const KnowledgeBasePage = () => {
+  const [documents, setDocuments] = useState<KBDocument[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchDocuments = useCallback(async () => {
+    setLoadingDocs(true);
+    try {
+      const res = await fetch('/api/kb/documents');
+      const data = await res.json();
+      setDocuments(data.documents ?? []);
+    } catch {
+      setDocuments([]);
+    } finally {
+      setLoadingDocs(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchDocuments(); }, [fetchDocuments]);
+
+  const handleUpload = async (file: File) => {
+    if (!file.name.endsWith('.txt')) {
+      setUploadStatus({ type: 'error', message: 'Only .txt files are supported.' });
+      return;
+    }
+    setUploading(true);
+    setUploadStatus(null);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch('/api/kb/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail ?? 'Upload failed');
+      setUploadStatus({ type: 'success', message: data.message });
+      await fetchDocuments();
+    } catch (e: any) {
+      setUploadStatus({ type: 'error', message: e.message ?? 'Upload failed' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (filename: string) => {
+    if (!confirm(`Delete "${filename}" from the knowledge base?`)) return;
+    setDeletingFile(filename);
+    try {
+      const res = await fetch(`/api/kb/documents/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      await fetchDocuments();
+    } catch {
+      alert('Failed to delete file.');
+    } finally {
+      setDeletingFile(null);
+    }
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleUpload(file);
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="space-y-8 max-w-3xl">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">Upload Knowledge Base</h2>
+        <p className="text-zinc-500 text-sm mt-1">
+          Upload <code className="text-emerald-400 bg-emerald-500/10 px-1 rounded">.txt</code> files to expand the AI's knowledge. Each file is automatically embedded into the vector store.
+        </p>
+      </div>
+
+      {/* Drop Zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={onDrop}
+        onClick={() => !uploading && fileInputRef.current?.click()}
+        className={`relative border-2 border-dashed rounded-2xl p-12 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-200 ${
+          isDragging
+            ? 'border-emerald-500 bg-emerald-500/10 scale-[1.01]'
+            : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]'
+        }`}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ''; }}
+        />
+        {uploading ? (
+          <>
+            <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+            </div>
+            <div className="text-center">
+              <p className="text-zinc-200 font-semibold">Embedding into vector store…</p>
+              <p className="text-zinc-500 text-sm mt-1">This may take a few seconds</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${isDragging ? 'bg-emerald-500/20' : 'bg-zinc-800'}`}>
+              <Upload className={`w-8 h-8 transition-colors ${isDragging ? 'text-emerald-400' : 'text-zinc-500'}`} />
+            </div>
+            <div className="text-center">
+              <p className="text-zinc-200 font-semibold">Drop a .txt file here or click to browse</p>
+              <p className="text-zinc-500 text-sm mt-1">The file will be saved and immediately embedded into the RAG pipeline</p>
+            </div>
+            <span className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold rounded-xl transition-colors pointer-events-none">
+              Choose File
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Status Banner */}
+      {uploadStatus && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`flex items-start gap-3 p-4 rounded-xl border ${
+            uploadStatus.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+              : 'bg-red-500/10 border-red-500/20 text-red-400'
+          }`}
+        >
+          {uploadStatus.type === 'success'
+            ? <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
+          <p className="text-sm">{uploadStatus.message}</p>
+        </motion.div>
+      )}
+
+      {/* Documents List */}
+      <div className="bg-zinc-900/50 border border-white/5 rounded-2xl overflow-hidden">
+        <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-medium text-zinc-400">
+            <BookOpen className="w-4 h-4" />
+            Current Knowledge Base
+            {!loadingDocs && (
+              <span className="ml-1 px-2 py-0.5 bg-zinc-800 text-zinc-500 text-xs rounded-full">{documents.length} files</span>
+            )}
+          </div>
+          <button
+            onClick={fetchDocuments}
+            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-zinc-500 hover:text-zinc-200"
+            title="Refresh"
+          >
+            <RefreshCcw className="w-4 h-4" />
+          </button>
+        </div>
+
+        {loadingDocs ? (
+          <div className="p-8 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+          </div>
+        ) : documents.length === 0 ? (
+          <div className="p-12 text-center text-zinc-600 text-sm">
+            No knowledge base documents found. Upload a .txt file above.
+          </div>
+        ) : (
+          <ul className="divide-y divide-white/5">
+            {documents.map((doc) => (
+              <li key={doc.filename} className="flex items-center gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors group">
+                <div className="w-9 h-9 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
+                  <FileText className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-zinc-200 truncate">{doc.filename}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    {formatSize(doc.size_bytes)} · Last modified {new Date(doc.last_modified * 1000).toLocaleDateString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDelete(doc.filename)}
+                  disabled={deletingFile === doc.filename}
+                  className="opacity-0 group-hover:opacity-100 p-2 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                  title="Delete"
+                >
+                  {deletingFile === doc.filename
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Trash2 className="w-4 h-4" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- Order Tracking Page ---
+
+const AddOrderModal = ({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (order: Order) => void;
+}) => {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [product, setProduct] = useState('');
+  const [orderDate, setOrderDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [status, setStatus] = useState('Pending');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canSubmit = name.trim() && email.trim() && product.trim() && orderDate && dueDate && !submitting;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const order = await API.createOrder({
+        name: name.trim(),
+        email: email.trim(),
+        product: product.trim(),
+        order_date: orderDate,
+        delivery_due_date: dueDate,
+        delivery_status: status,
+      });
+      onCreated(order);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to create order');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl overflow-hidden"
+      >
+        <div className="p-5 border-b border-white/5 flex items-center justify-between">
+          <h3 className="font-semibold text-zinc-100">Add Order</h3>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Customer Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Jane Doe"
+              className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="jane@example.com"
+              className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Product</label>
+            <input
+              value={product}
+              onChange={(e) => setProduct(e.target.value)}
+              placeholder="Wireless Headphones"
+              className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Order Date</label>
+              <input
+                type="date"
+                value={orderDate}
+                onChange={(e) => setOrderDate(e.target.value)}
+                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Due Date</label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Delivery Status</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="w-full bg-zinc-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="Pending">Pending</option>
+              <option value="Shipped">Shipped</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Delayed">Delayed</option>
+            </select>
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+        <div className="p-5 border-t border-white/5 flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-semibold rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create Order'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
+const OrderTrackingPage = () => {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const fetchOrders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await API.getOrders();
+      setOrders(data);
+    } catch (e) {
+      console.error('Failed to load orders:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
+  const handleStatusChange = async (order: Order, newStatus: string) => {
+    try {
+      const updated = await API.updateOrder(order.id, { delivery_status: newStatus });
+      setOrders(prev => prev.map(o => (o.id === order.id ? updated : o)));
+    } catch (e: any) {
+      alert(e.message ?? 'Failed to update order');
+    }
+  };
+
+  const handleDelete = async (order: Order) => {
+    if (!confirm(`Delete the order for "${order.product}" (${order.email})?`)) return;
+    try {
+      await API.deleteOrder(order.id);
+      setOrders(prev => prev.filter(o => o.id !== order.id));
+    } catch (e: any) {
+      alert(e.message ?? 'Failed to delete order');
+    }
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return orders.filter(o =>
+      o.name.toLowerCase().includes(q) ||
+      o.email.toLowerCase().includes(q) ||
+      o.product.toLowerCase().includes(q)
+    );
+  }, [orders, search]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Order Tracking</h2>
+          <p className="text-zinc-500 text-sm mt-1">Manage customer orders and delivery statuses.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search orders..."
+              className="pl-9 pr-4 py-2 bg-zinc-900 border border-white/5 rounded-lg text-sm focus:ring-1 focus:ring-emerald-500 outline-none w-56 text-zinc-200"
+            />
+          </div>
+          <button
+            onClick={fetchOrders}
+            disabled={loading}
+            className="p-2 bg-zinc-900 border border-white/5 rounded-lg text-zinc-400 hover:text-zinc-100 disabled:opacity-50 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold rounded-lg transition-colors flex items-center gap-2"
+          >
+            <Truck className="w-4 h-4" />
+            Add Order
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-zinc-900/50 border border-white/5 rounded-2xl overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 gap-3 text-zinc-500">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading orders…</span>
+          </div>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-white/5 border-b border-white/5">
+                <th className="px-6 py-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Name</th>
+                <th className="px-6 py-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Email</th>
+                <th className="px-6 py-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Product</th>
+                <th className="px-6 py-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Order Date</th>
+                <th className="px-6 py-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Due Date</th>
+                <th className="px-6 py-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Status</th>
+                <th className="px-6 py-4"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-zinc-500 text-sm italic">
+                    {search ? 'No orders match your search.' : 'No orders yet. Click "Add Order" to create one.'}
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((order) => (
+                  <tr key={order.id} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="px-6 py-4 text-sm font-medium text-zinc-200">{order.name}</td>
+                    <td className="px-6 py-4 text-sm text-zinc-400">{order.email}</td>
+                    <td className="px-6 py-4 text-sm text-zinc-300">{order.product}</td>
+                    <td className="px-6 py-4 text-sm text-zinc-500">{order.order_date}</td>
+                    <td className="px-6 py-4 text-sm text-zinc-500">{order.delivery_due_date}</td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={order.delivery_status}
+                        onChange={(e) => handleStatusChange(order, e.target.value)}
+                        className={`px-2 py-1 rounded-full text-[11px] font-bold uppercase border bg-transparent outline-none cursor-pointer ${DELIVERY_STATUS_COLORS[order.delivery_status] ?? DELIVERY_STATUS_COLORS.Pending}`}
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Shipped">Shipped</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Delayed">Delayed</option>
+                      </select>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => handleDelete(order)}
+                        className="p-2 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {showAddModal && (
+          <AddOrderModal
+            onClose={() => setShowAddModal(false)}
+            onCreated={(order) => {
+              setOrders(prev => [order, ...prev]);
+              setShowAddModal(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 // --- Main App ---
 
 export default function App() {
+
   const [activePage, setActivePage] = useState<Page>('create-ticket');
   const [tickets, setTickets]       = useState<Ticket[]>([]);
   const [loading, setLoading]       = useState(false);
@@ -1177,6 +1769,8 @@ export default function App() {
           <SidebarItem id="tickets"        icon={Inbox}           label="All Tickets"            active={activePage === 'tickets'}        onClick={setActivePage} />
           <SidebarItem id="human-tickets"  icon={Users}           label="Human Assigned"         active={activePage === 'human-tickets'}  onClick={setActivePage} />
           <SidebarItem id="analytics"      icon={BarChart3}       label="Analytics Dashboard"    active={activePage === 'analytics'}      onClick={setActivePage} />
+          <SidebarItem id="order-tracking" icon={Truck}           label="Order Tracking"         active={activePage === 'order-tracking'} onClick={setActivePage} />
+          <SidebarItem id="upload-kb"      icon={BookOpen}        label="Upload Knowledge Base"  active={activePage === 'upload-kb'}      onClick={setActivePage} />
         </nav>
 
         <div className="p-4 border-t border-white/5">
@@ -1250,6 +1844,12 @@ export default function App() {
                   loading={loading}
                   onRefresh={loadTickets}
                 />
+              )}
+              {activePage === 'order-tracking' && (
+                <OrderTrackingPage />
+              )}
+              {activePage === 'upload-kb' && (
+                <KnowledgeBasePage />
               )}
             </motion.div>
           </AnimatePresence>

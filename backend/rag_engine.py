@@ -5,10 +5,13 @@ import logging
 from dotenv import load_dotenv
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores.supabase import SupabaseVectorStore
+from supabase.client import Client, create_client
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+
+from backend import supabase_client
 
 load_dotenv()
 
@@ -16,36 +19,43 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KB_DIR = os.path.join(BASE_DIR, "kb")
-CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
-COLLECTION_NAME = "cs_support_kb"
-
 # Lazy-loaded singletons
 _vectorstore = None
 _embeddings = None
+_supabase_client = None
+
+def get_supabase_client() -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
+        _supabase_client = create_client(url, key)
+    return _supabase_client
 
 
 # ─────────────────────────────────────────────
-# Embeddings  (HuggingFace, fully local)
+# Embeddings  (HuggingFace Inference API)
 # ─────────────────────────────────────────────
 
 def get_embeddings() -> HuggingFaceEmbeddings:
     global _embeddings
     if _embeddings is None:
-        logger.info("Loading HuggingFace embedding model (all-MiniLM-L6-v2)…")
+        logger.info("Loading local HuggingFace embeddings (sentence-transformers)…")
         _embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            model_kwargs={"device": "cpu"},
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
         )
     return _embeddings
 
 
 # ─────────────────────────────────────────────
-# Chroma Vector Store
+# Supabase Vector Store
 # ─────────────────────────────────────────────
 
-def build_vectorstore(embeddings: HuggingFaceEmbeddings) -> Chroma:
-    """Load KB docs, chunk them, embed and save a Chroma collection."""
-    logger.info("Building Chroma vector store from KB documents…")
+def build_vectorstore(embeddings: HuggingFaceEmbeddings) -> SupabaseVectorStore:
+    """Load KB docs, chunk them, embed and save them to Supabase pgvector."""
+    logger.info("Uploading KB documents to Supabase pgvector…")
     loader = DirectoryLoader(
         KB_DIR,
         glob="*.txt",
@@ -60,33 +70,69 @@ def build_vectorstore(embeddings: HuggingFaceEmbeddings) -> Chroma:
     chunks = splitter.split_documents(docs)
     logger.info("Split %d documents into %d chunks.", len(docs), len(chunks))
 
-    vectorstore = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        collection_name=COLLECTION_NAME,
-        persist_directory=CHROMA_DIR,
+    client = get_supabase_client()
+    vectorstore = SupabaseVectorStore.from_documents(
+        chunks,
+        embeddings,
+        client=client,
+        table_name="kb_documents",
+        query_name="match_kb_documents"
     )
-    logger.info("Chroma index saved to %s", CHROMA_DIR)
+    logger.info("Successfully saved vectors to Supabase.")
     return vectorstore
 
 
-def get_vectorstore() -> Chroma:
+def _delete_vectors_for_source(filename: str) -> None:
+    """Remove any previously embedded chunks whose metadata.source matches this KB file."""
+    client = get_supabase_client()
+    source_path = os.path.join(KB_DIR, filename)
+    client.table("kb_documents").delete().eq("metadata->>source", source_path).execute()
+
+
+def embed_kb_document(filename: str) -> int:
+    """
+    Embed a single KB file into Supabase pgvector and make it available to the
+    live vectorstore immediately — no full rebuild of the other KB files.
+    Replaces any vectors from a previous upload of the same filename first,
+    so re-uploading a file doesn't create duplicate chunks.
+    """
+    file_path = os.path.join(KB_DIR, filename)
+    loader = TextLoader(file_path, encoding="utf-8")
+    docs = loader.load()
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    chunks = splitter.split_documents(docs)
+
+    _delete_vectors_for_source(filename)
+
+    vectorstore = get_vectorstore()
+    vectorstore.add_documents(chunks)
+    logger.info("Embedded %d chunks for '%s' into Supabase.", len(chunks), filename)
+    return len(chunks)
+
+
+def delete_kb_document_vectors(filename: str) -> None:
+    """Remove a KB file's embedded chunks from Supabase so the agent stops using it."""
+    _delete_vectors_for_source(filename)
+
+
+def get_vectorstore() -> SupabaseVectorStore:
     global _vectorstore
     if _vectorstore is not None:
         return _vectorstore
 
     embeddings = get_embeddings()
+    client = get_supabase_client()
 
-    # If the persisted DB exists and has documents, load it directly
-    if os.path.isdir(CHROMA_DIR) and os.listdir(CHROMA_DIR):
-        logger.info("Loading existing Chroma index from %s", CHROMA_DIR)
-        _vectorstore = Chroma(
-            collection_name=COLLECTION_NAME,
-            embedding_function=embeddings,
-            persist_directory=CHROMA_DIR,
-        )
-    else:
-        _vectorstore = build_vectorstore(embeddings)
+    # Always instantiate the vectorstore pointing to the remote Supabase database
+    # For initial populating of Supabase, you must run build_vectorstore manually or call an admin endpoint
+    # Vercel serverless environment should not build the store, only read it
+    _vectorstore = SupabaseVectorStore(
+        client=client,
+        embedding=embeddings,
+        table_name="kb_documents",
+        query_name="match_kb_documents"
+    )
 
     return _vectorstore
 
@@ -115,20 +161,22 @@ Your job is to analyze incoming customer support emails and respond with a struc
 STRICT RULES:
 1. Respond with ONLY a valid JSON object — no markdown fences, no prose, no extra keys.
 2. "intent" MUST be exactly one of:
-   - "Account Issues"
-   - "Billing Issues"
-   - "Technical Issues"
-   - "Security Issues"
-   - "General Support"
+   - "Return"
+   - "Refund"
+   - "Payment Failed"
+   - "Queries"
+   - "Delivery"
+   - "General FAQs"
+   - "Complaints"
 3. "sentiment" MUST be exactly one of:
    - "Angry"
    - "Neutral"
    - "Happy"
-4. "ai_reply" should be a helpful, empathetic reply grounded in the knowledge base context provided.
+4. "ai_reply" should be a helpful, empathetic reply grounded in the knowledge base context provided. If the intent is "Delivery", a generic placeholder reply is fine — it will be replaced with the customer's real order status.
 
 Required JSON format:
 {
-  "intent": "<one of the 5 categories>",
+  "intent": "<one of the 7 categories>",
   "sentiment": "<Angry | Neutral | Happy>",
   "ai_reply": "<your helpful reply to the customer>"
 }"""
@@ -151,46 +199,41 @@ Analyze the email. Return ONLY the JSON object."""
 # Routing Logic
 # ─────────────────────────────────────────────
 
-TRANSACTION_KEYWORDS = [
-    "transaction failed",
-    "payment failed",
-    "payment declined",
-    "charge failed",
-    "transaction declined",
-    "payment unsuccessful",
-    "could not process payment",
-    "couldn't process payment",
-    "failed to process",
-]
-
-CRITICAL_TECHNICAL_KEYWORDS = [
-    "page not loading",
-    "app crashes",
-    "crash",
-    "down",
-    "not loading",
-    "fatal",
-    "emergency",
-]
-
-def is_critical_technical(intent: str, full_text: str) -> bool:
-    """Check if the ticket is a critical technical issue requiring immediate Slack attention."""
-    if intent != "Technical Issues":
-        return False
-    text_lower = full_text.lower()
-    return any(kw in text_lower for kw in CRITICAL_TECHNICAL_KEYWORDS)
+# Intents that always escalate to a Human Agent, regardless of sentiment.
+ESCALATE_INTENTS = {"Return", "Payment Failed", "Complaints"}
 
 
-def determine_routing(intent: str, sentiment: str, full_text: str) -> tuple[str, str]:
+def determine_routing(intent: str, sentiment: str) -> tuple[str, str]:
     """Return (agent_type, status) based on routing rules."""
-    text_lower = full_text.lower()
-    is_transaction = any(kw in text_lower for kw in TRANSACTION_KEYWORDS)
-    is_security = intent == "Security Issues"
-    is_angry = sentiment == "Angry"
-
-    if is_transaction or is_security or is_angry:
+    if intent in ESCALATE_INTENTS or sentiment == "Angry":
         return "Human Agent", "Not Resolved"
     return "AI Agent", "Resolved"
+
+
+def process_delivery_intent(sender_email: str, sender_subject: str, sender_body: str) -> dict:
+    """Look up the customer's order by email and build a delivery-status reply."""
+    order = supabase_client.get_order_by_email(sender_email)
+    if order:
+        reply = (
+            f"Hi, thanks for reaching out about your order for **{order['product']}**.\n\n"
+            f"- Order date: {order['order_date']}\n"
+            f"- Expected delivery: {order['delivery_due_date']}\n"
+            f"- Current status: **{order['delivery_status']}**\n\n"
+            "If anything looks off, just reply to this email and we'll take a closer look."
+        )
+    else:
+        reply = (
+            "Thanks for reaching out about your delivery! We couldn't find an order linked "
+            "to this email address — could you reply with your order ID so we can look into it "
+            "right away?"
+        )
+    return {
+        "intent": "Delivery",
+        "sentiment": "Neutral",
+        "ai_reply": reply,
+        "agent_type": "AI Agent",
+        "status": "Resolved",
+    }
 
 
 # ─────────────────────────────────────────────
@@ -200,10 +243,10 @@ def determine_routing(intent: str, sentiment: str, full_text: str) -> tuple[str,
 def process_email(sender_email: str, sender_subject: str, sender_body: str) -> dict:
     """
     Full RAG pipeline:
-    1. Retrieve relevant KB chunks via FAISS
-    2. Call OpenRouter LLM with KB context + email
+    1. Retrieve relevant KB chunks from Supabase pgvector
+    2. Call OpenRouter LLM with KB context + email to classify intent/sentiment
     3. Parse JSON response
-    4. Apply routing rules
+    4. Apply routing rules (Delivery gets a real order lookup instead of a KB reply)
     5. Return enriched ticket dict
     """
     # Step 1 – retrieve relevant KB context
@@ -245,19 +288,17 @@ def process_email(sender_email: str, sender_subject: str, sender_body: str) -> d
             raise ValueError(f"LLM response missing required field: '{field}'")
 
     # Step 4 – routing
-    full_text = f"{sender_subject} {sender_body}"
-    
-    # Override sentiment for payment-related issues that aren't inherently angry
-    text_lower = full_text.lower()
-    is_transaction = any(kw in text_lower for kw in TRANSACTION_KEYWORDS)
-    if is_transaction and result["sentiment"] != "Angry":
-        result["sentiment"] = "Neutral"
+    intent = result["intent"]
+    sentiment = result["sentiment"]
+    agent_type, status = determine_routing(intent, sentiment)
 
-    agent_type, status = determine_routing(result["intent"], result["sentiment"], full_text)
+    # Delivery tickets that aren't escalated get a real order lookup instead of a KB reply
+    if intent == "Delivery" and agent_type == "AI Agent":
+        return process_delivery_intent(sender_email, sender_subject, sender_body)
 
     return {
-        "intent": result["intent"],
-        "sentiment": result["sentiment"],
+        "intent": intent,
+        "sentiment": sentiment,
         "ai_reply": result["ai_reply"],
         "agent_type": agent_type,
         "status": status,

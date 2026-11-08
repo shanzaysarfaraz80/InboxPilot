@@ -1,0 +1,29 @@
+GENERAL FAQS - KNOWLEDGE BASE
+===============================
+
+Q: What are your customer support hours?
+A: Our AI support is available 24/7 and can resolve most questions instantly. Human agents are available Monday-Friday, 9 AM-6 PM EST, and Saturday 10 AM-4 PM EST.
+
+Q: How do I contact support?
+A: Email us at support@support.com, use the live chat on our website, or reply directly to this email. Urgent account security or payment issues are prioritized.
+
+Q: What payment methods do you accept?
+A: We accept Visa, MasterCard, American Express, Discover, PayPal, Apple Pay, and Google Pay.
+
+Q: Do you have a mobile app?
+A: Yes, our app is available on the App Store (iOS) and Google Play (Android). Search "SupportFlow" to download it.
+
+Q: Where can I find your Terms of Service and Privacy Policy?
+A: Both are linked in the footer of our website at support.com/terms and support.com/privacy.
+
+Q: How do I create an account?
+A: Click "Sign Up" on our homepage and enter your email and a password, or sign up instantly using Google or Apple.
+
+Q: How do I unsubscribe from marketing emails?
+A: Click "Unsubscribe" at the bottom of any marketing email, or go to Account Settings → Notifications and turn off promotional emails. You'll still receive order and account-related emails.
+
+Q: Do you offer student, military, or non-profit discounts?
+A: Yes, we offer 15% off for verified students, military members, and registered non-profits. Verify your status at support.com/discounts to receive a one-time code.
+
+Q: Is my personal information secure?
+A: Yes. We use industry-standard encryption for data in transit and at rest, and we never sell your personal information to third parties.

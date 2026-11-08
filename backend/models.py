@@ -25,3 +25,21 @@ class TicketOutput(BaseModel):
 class TicketUpdate(BaseModel):
     human_agent_reply: Optional[str] = None
     status: Optional[str] = None
+
+
+class OrderInput(BaseModel):
+    name: str
+    email: str
+    product: str
+    order_date: str
+    delivery_due_date: str
+    delivery_status: Optional[str] = "Pending"
+
+
+class OrderUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    product: Optional[str] = None
+    order_date: Optional[str] = None
+    delivery_due_date: Optional[str] = None
+    delivery_status: Optional[str] = None

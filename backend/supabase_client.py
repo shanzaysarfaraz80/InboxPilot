@@ -67,3 +67,57 @@ def update_ticket(ticket_id: str, data: dict) -> dict:
     if response.data:
         return response.data[0]
     return {}
+
+
+# ─── Order Tracking ───────────────────────────────────────────────────────────
+
+def get_order_by_email(email: str) -> dict | None:
+    """Look up the most recent order placed under this email (case-insensitive)."""
+    client = get_client()
+    response = (
+        client.table("order_tracking")
+        .select("*")
+        .ilike("email", email)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if response.data:
+        return response.data[0]
+    return None
+
+
+def get_all_orders() -> list:
+    client = get_client()
+    response = (
+        client.table("order_tracking")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
+def insert_order(data: dict) -> dict:
+    client = get_client()
+    response = client.table("order_tracking").insert(data).execute()
+    if response.data:
+        return response.data[0]
+    logger.error("Supabase order insert returned no data: %s", response)
+    return data
+
+
+def update_order(order_id: str, data: dict) -> dict:
+    client = get_client()
+    response = client.table("order_tracking").update(data).eq("id", order_id).execute()
+    if response.data:
+        return response.data[0]
+    return {}
+
+
+def delete_order(order_id: str) -> dict:
+    client = get_client()
+    response = client.table("order_tracking").delete().eq("id", order_id).execute()
+    if response.data:
+        return response.data[0]
+    return {}

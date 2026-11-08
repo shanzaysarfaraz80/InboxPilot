@@ -3,12 +3,12 @@ import logging
 import uvicorn
 import httpx
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from backend.models import EmailInput, TicketUpdate
+from backend.models import EmailInput, TicketUpdate, OrderInput, OrderUpdate
 from backend import rag_engine, supabase_client
 
 load_dotenv()
@@ -111,9 +111,8 @@ async def create_ticket(email_input: EmailInput):
         logger.exception("Supabase insert error")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-    # Step: Check if critical and send Slack alert
-    full_email_text = f"{email_input.sender_subject} {email_input.sender_body_email}"
-    if rag_engine.is_critical_technical(result["intent"], full_email_text):
+    # Step: Send a Slack alert whenever a ticket is escalated to a Human Agent
+    if result["agent_type"] == "Human Agent":
         slack_url = os.getenv("SLACK_WEBHOOK_URL")
         if slack_url:
             try:
@@ -121,17 +120,17 @@ async def create_ticket(email_input: EmailInput):
                 snippet = email_input.sender_body_email.strip()
                 if len(snippet) > 300:
                     snippet = snippet[:300] + "..."
-                
+
                 slack_payload = {
-                    "text": f"🚨 *URGENT TECHNICAL ISSUE* 🚨\n*Customer Email:* `{email_input.sender_email}`\n*Ticket ID:* `{stored.get('id', 'N/A')}`\n*Subject:* {email_input.sender_subject}\n*Message Snippet:*\n```{snippet}```"
+                    "text": f"🚨 *TICKET ESCALATED TO HUMAN AGENT* 🚨\n*Customer Email:* `{email_input.sender_email}`\n*Ticket ID:* `{stored.get('id', 'N/A')}`\n*Intent:* {result['intent']} · *Sentiment:* {result['sentiment']}\n*Subject:* {email_input.sender_subject}\n*Message Snippet:*\n```{snippet}```"
                 }
                 # Quick synchronous POST without blocking the whole process for too long
                 httpx.post(slack_url, json=slack_payload, timeout=4.0)
-                logger.info(f"Critical technical alert sent to Slack for ticket {stored.get('id')}")
+                logger.info(f"Escalation alert sent to Slack for ticket {stored.get('id')}")
             except Exception as e:
                 logger.error(f"Failed to send Slack alert: {e}")
         else:
-            logger.warning("Critical technical ticket detected, but SLACK_WEBHOOK_URL is not set in .env")
+            logger.warning("Ticket escalated to Human Agent, but SLACK_WEBHOOK_URL is not set in .env")
 
     # Step: Send AI auto-reply if applicable
     email_sent = False
@@ -213,6 +212,132 @@ async def update_ticket(ticket_id: str, ticket_update: TicketUpdate):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ─── Order Tracking ───────────────────────────────────────────────────────────
+
+@app.get("/api/orders", summary="List all orders")
+async def list_orders():
+    try:
+        return supabase_client.get_all_orders()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/orders", summary="Create an order")
+async def create_order(order: OrderInput):
+    try:
+        return supabase_client.insert_order(order.model_dump())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/orders/{order_id}", summary="Update an order's delivery status")
+async def update_order(order_id: str, order_update: OrderUpdate):
+    data_to_update = order_update.model_dump(exclude_unset=True)
+    if not data_to_update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    try:
+        updated = supabase_client.update_order(order_id, data_to_update)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return updated
+
+
+@app.delete("/api/orders/{order_id}", summary="Delete an order")
+async def delete_order(order_id: str):
+    try:
+        deleted = supabase_client.delete_order(order_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {"success": True, "message": "Order deleted"}
+
+
+# ─── Knowledge Base Upload ────────────────────────────────────────────────────
+
+KB_DIR = os.path.join(os.path.dirname(__file__), "kb")
+
+@app.get("/api/kb/documents", summary="List all KB documents")
+async def list_kb_documents():
+    """Returns a list of all .txt files currently in the KB directory."""
+    try:
+        files = [f for f in os.listdir(KB_DIR) if f.endswith(".txt")]
+        result = []
+        for f in files:
+            path = os.path.join(KB_DIR, f)
+            stat = os.stat(path)
+            result.append({
+                "filename": f,
+                "size_bytes": stat.st_size,
+                "last_modified": stat.st_mtime,
+            })
+        return {"documents": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/kb/upload", summary="Upload a knowledge base document and re-embed")
+async def upload_kb_document(file: UploadFile = File(...)):
+    """
+    Accepts a .txt file upload, saves it to the KB directory,
+    then re-builds the vector store with the new content embedded.
+    """
+    if not file.filename or not file.filename.endswith(".txt"):
+        raise HTTPException(status_code=400, detail="Only .txt files are supported.")
+
+    # Save the uploaded file to the KB directory
+    dest_path = os.path.join(KB_DIR, file.filename)
+    try:
+        contents = await file.read()
+        with open(dest_path, "wb") as f:
+            f.write(contents)
+        logger.info(f"Saved uploaded KB file: {dest_path}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+
+    # Embed just this file and add it to the live vector store (no full rebuild,
+    # so other already-embedded KB docs aren't re-inserted as duplicates)
+    try:
+        chunk_count = rag_engine.embed_kb_document(file.filename)
+        logger.info(f"Embedded {chunk_count} chunks for '{file.filename}' into Supabase.")
+    except Exception as e:
+        logger.error(f"Failed to embed KB file: {e}")
+        raise HTTPException(status_code=500, detail=f"File saved but embedding failed: {e}")
+
+    return {
+        "success": True,
+        "filename": file.filename,
+        "size_bytes": len(contents),
+        "chunks_embedded": chunk_count,
+        "message": f"'{file.filename}' uploaded and embedded into the knowledge base successfully.",
+    }
+
+
+@app.delete("/api/kb/documents/{filename}", summary="Delete a KB document")
+async def delete_kb_document(filename: str):
+    """Deletes a .txt file from the KB directory."""
+    if not filename.endswith(".txt"):
+        raise HTTPException(status_code=400, detail="Only .txt files can be deleted.")
+    path = os.path.join(KB_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found.")
+    try:
+        os.remove(path)
+        logger.info(f"Deleted KB file: {path}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}")
+
+    # Also remove its embedded chunks so the agent stops answering from it
+    try:
+        rag_engine.delete_kb_document_vectors(filename)
+    except Exception as e:
+        logger.error(f"Failed to remove embedded vectors for '{filename}': {e}")
+
+    return {"success": True, "message": f"'{filename}' deleted from knowledge base."}
 
 
 # ─── Serve Frontend ───────────────────────────────────────────────────────────
