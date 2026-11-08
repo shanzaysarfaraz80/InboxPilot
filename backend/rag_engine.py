@@ -49,6 +49,9 @@ def get_embeddings() -> FastEmbedEmbeddings:
         logger.info("Loading FastEmbed (ONNX) embeddings…")
         _embeddings = FastEmbedEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
+            # Vercel's Python functions have a read-only filesystem except /tmp;
+            # fastembed's default cache dir isn't writable there.
+            cache_dir="/tmp/fastembed_cache",
         )
     return _embeddings
 
