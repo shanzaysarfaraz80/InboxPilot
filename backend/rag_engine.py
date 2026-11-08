@@ -1,4 +1,13 @@
 import os
+
+# Vercel's Python functions have a read-only filesystem outside of /tmp.
+# huggingface_hub (used internally by fastembed) consults these env vars for
+# where to cache downloads, independent of fastembed's own `cache_dir` param,
+# so they must be set before anything imports huggingface_hub.
+os.environ.setdefault("HF_HOME", "/tmp/hf_home")
+os.environ.setdefault("HF_HUB_CACHE", "/tmp/hf_home/hub")
+os.environ.setdefault("XDG_CACHE_HOME", "/tmp/xdg_cache")
+
 import json
 import json_repair
 import logging
