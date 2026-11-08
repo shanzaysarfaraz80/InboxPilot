@@ -5,7 +5,7 @@ import logging
 from dotenv import load_dotenv
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_community.vectorstores.supabase import SupabaseVectorStore
 from supabase.client import Client, create_client
 from langchain_openai import ChatOpenAI
@@ -36,14 +36,18 @@ def get_supabase_client() -> Client:
 
 
 # ─────────────────────────────────────────────
-# Embeddings  (HuggingFace Inference API)
+# Embeddings  (FastEmbed — ONNX runtime, no torch)
+#
+# Same model/dimension (384) as the original sentence-transformers setup,
+# but ONNX-based so it doesn't pull in torch. torch alone pushed the Vercel
+# Python function bundle to 5.5GB, far over the 500MB serverless limit.
 # ─────────────────────────────────────────────
 
-def get_embeddings() -> HuggingFaceEmbeddings:
+def get_embeddings() -> FastEmbedEmbeddings:
     global _embeddings
     if _embeddings is None:
-        logger.info("Loading local HuggingFace embeddings (sentence-transformers)…")
-        _embeddings = HuggingFaceEmbeddings(
+        logger.info("Loading FastEmbed (ONNX) embeddings…")
+        _embeddings = FastEmbedEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
         )
     return _embeddings
@@ -53,7 +57,7 @@ def get_embeddings() -> HuggingFaceEmbeddings:
 # Supabase Vector Store
 # ─────────────────────────────────────────────
 
-def build_vectorstore(embeddings: HuggingFaceEmbeddings) -> SupabaseVectorStore:
+def build_vectorstore(embeddings: FastEmbedEmbeddings) -> SupabaseVectorStore:
     """Load KB docs, chunk them, embed and save them to Supabase pgvector."""
     logger.info("Uploading KB documents to Supabase pgvector…")
     loader = DirectoryLoader(
